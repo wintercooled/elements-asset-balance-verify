@@ -20,6 +20,9 @@ def main():
     RPC_USER = 'yourusernamehere'
     RPC_PASSWORD = 'yourpasswordhere'
     RPC_PORT = 18884
+    RPC_USER = 'user5145017847548301'
+    RPC_PASSWORD = 'password7400934705786065'
+    RPC_PORT = 18884
 
     # OPTIONAL
     # --------
@@ -34,6 +37,12 @@ def main():
     # be saved in the file LAST_BLOCK after the script has run. 0 start from
     # genesis:
     START_AT_BLOCK_HEIGHT = 0
+
+    # OPTIONAL
+    # --------
+    # Stop processing at a particular block height (inclusive).
+    # Set to None to process until chain tip:
+    STOP_AT_BLOCK_HEIGHT = None
 
     ###########################################################################
     #              BEFORE RUNNING THE SCRIPT SET THE VALUES ABOVE
@@ -92,6 +101,9 @@ def main():
                                 if asm == 'OP_RETURN' and script_type == 'nulldata':
                                     if ASSET_ID is None or ASSET_ID == vout['asset']:
                                         writeBurn(vout, block_height)
+            if STOP_AT_BLOCK_HEIGHT:
+                if STOP_AT_BLOCK_HEIGHT == block_height:
+                    end_of_chain = True
             block_height = block_height + 1
         except Exception as e:
             if hasattr(e, 'message'):
