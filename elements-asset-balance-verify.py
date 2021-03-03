@@ -174,7 +174,7 @@ def writeIssueOrReissue(issuance, block_height):
 
 def removeAssetFiles():
     folder = 'assets'
-    try:
+    if os.path.exists(folder):
         for filename in os.listdir(folder):
             file_path = os.path.join(folder, filename)
             try:
@@ -182,8 +182,6 @@ def removeAssetFiles():
                     os.unlink(file_path)
             except Exception as e:
                 print('Failed to delete %s. Reason: %s' % (file_path, e))
-    except:
-        print('No such folder')
 
 
 if __name__ == '__main__':
