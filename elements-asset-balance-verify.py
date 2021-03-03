@@ -20,9 +20,6 @@ def main():
     RPC_USER = 'yourusernamehere'
     RPC_PASSWORD = 'yourpasswordhere'
     RPC_PORT = 18884
-    RPC_USER = 'user5145017847548301'
-    RPC_PASSWORD = 'password7400934705786065'
-    RPC_PORT = 18884
 
     # OPTIONAL
     # --------
