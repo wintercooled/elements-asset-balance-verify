@@ -3,21 +3,25 @@ Searches Elements blocks for issuances, reissuances, burns of an asset to provid
 
 Before running, set values as directed in the script.
 
-## Example Use
+## Example
 
-```
 This asset: https://blockstream.info/liquid/asset/f266a3f15e78b71481adfedff9aefe47c69501a181ffc68527bb5fb26da6a4b2
+
 Was issued in transaction: https://blockstream.info/liquid/tx/49cc1ca72be5b5ca3375348274cee22ccb686f4c3a8f8bc7767156680ca61d92
+
 Which was included in block: 1038078
 
 To process every tx in every block since issuance to check for any reissuances
 or burns for the asset so you can validate the amounts shown on the liquid
 assets page above.You can run the script with:
 
+```
 ASSET_ID = 'f266a3f15e78b71481adfedff9aefe47c69501a181ffc68527bb5fb26da6a4b2'
 START_BLOCK_HEIGHT = 1038078
 STOP_AT_BLOCK_HEIGHT = None
 ```
+
+## Config
 
 Your elements node must have txindex=1 in elements.conf. If it doesn't you need to add it to your confiog file and start elements with the ``--reindex`` argument once so it indexs the blockchain. After adding the config file setting and reindexing once, you can start elements normally from then on. If you do not do this the script will fail with an error: ``Error: No such mempool or blockchain transaction. Use gettransaction for wallet transactions.``.
 
@@ -35,6 +39,8 @@ txindex=1
 fallbackfee=0.00000100
 ```
 
+## Install and run
+
 To install requirements and run the script (Linux):
 
 ```
@@ -46,6 +52,8 @@ pip install python-bitcoinrpc
 
 python elements-asset-balance-verify.py
 ```
+
+## Example Output
 
 Example outputs using a local elementsregtest blockchain for demo purposes (any locally connected node will report the same details, regardless of which node issued, reissused or burned the asset):
 
