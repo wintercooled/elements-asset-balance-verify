@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
@@ -7,6 +8,19 @@ from pathlib import Path
 
 
 def main():
+
+    # Example
+    # -------
+    # This asset: https://blockstream.info/liquid/asset/f266a3f15e78b71481adfedff9aefe47c69501a181ffc68527bb5fb26da6a4b2
+    # Was issued in transaction: https://blockstream.info/liquid/tx/49cc1ca72be5b5ca3375348274cee22ccb686f4c3a8f8bc7767156680ca61d92
+    # Which was included in block: 1038078
+    # You can run the script with:
+    # ASSET_ID = 'f266a3f15e78b71481adfedff9aefe47c69501a181ffc68527bb5fb26da6a4b2'
+    # START_BLOCK_HEIGHT = 1038078
+    # STOP_AT_BLOCK_HEIGHT = None
+    # That will trawl every block since issuance to check for any reissuances
+    # or burns for the asset so you can validate the amounts shown on the
+    # liquid assets page above.
 
     ###########################################################################
     #              BEFORE RUNNING THE SCRIPT SET THE VALUES BELOW
@@ -17,29 +31,43 @@ def main():
     # Elements RPC Credentials
     # You need to change all 3 after setting them in your elements.conf file.
     # See associated README for example config file format.
-    RPC_USER = 'yourusernamehere'
-    RPC_PASSWORD = 'yourpasswordhere'
-    RPC_PORT = 18884
+    RPC_USER = 'yourusername'
+    RPC_PASSWORD = 'yourpassword'
+    RPC_PORT = 18885
 
-    # OPTIONAL
-    # --------
+    # BLOCK RANGE CONTROL
+    # -------------------
+    # The script will save the last block processed to file and will pick up
+    # from there if you set this to True. False will ignore the contents of
+    # the LAST_BLOCK file and use START_BLOCK_HEIGHT. If there is no
+    # LAST_BLOCK file it will use START_BLOCK_HEIGHT.
+    START_FROM_LAST_BLOCK_PROCESSED = True
+
+    # If START_FROM_LAST_BLOCK_PROCESSED is False or the script has not been
+    # run before you can specify the initial start block height.
+    # This may be useful if you know an initial issuance was done at a
+    # particular block height and do not need to process earlier blocks.
+    # After running the script the last block processed will saved in the file
+    # LAST_BLOCK.
+    START_BLOCK_HEIGHT = 0
+
+    # Stop processing at a particular block height (inclusive).
+    # Set to None to process until chain tip.
+    # If a value is given and the value is equal to the value in LAST_BLOCK the
+    # script will exit.
+    # If a value is given and the value is lower than the height in
+    # the LAST_BLOCK_HEIGHT file it will be ignored and the script will run to
+    # chain tip.
+    STOP_AT_BLOCK_HEIGHT = None
+
+
+    # OPTIONAL ASSET ID TO LOOK FOR
+    # -----------------------------
     # Set the following to an asset hex if you want to report on a specific
     # asset, otherwise leave it as None to report on all assets:
+    # Note: the L-BTC asset id is 6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d
+    # This script will track burns of L-BTC but not pegs in or out yet.
     ASSET_ID = None
-
-    # OPTIONAL
-    # --------
-    # The script appends to file so if you run the script once, you can start
-    # again at the last block height processed. The last block processed will
-    # be saved in the file LAST_BLOCK after the script has run. 0 start from
-    # genesis:
-    START_AT_BLOCK_HEIGHT = 0
-
-    # OPTIONAL
-    # --------
-    # Stop processing at a particular block height (inclusive).
-    # Set to None to process until chain tip:
-    STOP_AT_BLOCK_HEIGHT = None
 
     ###########################################################################
     #              BEFORE RUNNING THE SCRIPT SET THE VALUES ABOVE
@@ -49,10 +77,41 @@ def main():
     block_hash = ''
     rpc_ready = False
     end_of_chain = False
-    block_height = START_AT_BLOCK_HEIGHT
+    block_height = START_BLOCK_HEIGHT
+    saved_block_height = None
 
-    # Delete asset files if we are starting from genesis:
-    if START_AT_BLOCK_HEIGHT == 0:
+    if START_FROM_LAST_BLOCK_PROCESSED:
+        saved_block_height = readLastBlockHeight()
+        if saved_block_height:
+            if STOP_AT_BLOCK_HEIGHT:
+                if saved_block_height > STOP_AT_BLOCK_HEIGHT:
+                    # If the last block processed is greater than the stop height
+                    # process up to chain tip instead.
+                    STOP_AT_BLOCK_HEIGHT = None
+                if saved_block_height == STOP_AT_BLOCK_HEIGHT:
+                    print(f'LAST_BLOCK value is {saved_block_height} and so is STOP_AT_BLOCK_HEIGHT. Exiting.')
+                    print(f'Note: set STOP_AT_BLOCK_HEIGHT to None to process to chain tip.')
+                    sys.exit()
+            if saved_block_height > START_BLOCK_HEIGHT:
+                # If the last block processed is greater than the start height
+                # process from last block processed. This avoids writing duplicate
+                # entries to the asset files.
+                block_height = saved_block_height + 1
+
+    message_block_stop_at = 'chain tip'
+    if STOP_AT_BLOCK_HEIGHT:
+        message_block_stop_at = f'block {str(STOP_AT_BLOCK_HEIGHT)}'
+
+    print(f'Will process from block {block_height} to {message_block_stop_at}.')
+    print('Do you want to start processing blocks? (y/n)')
+    x = input()
+    if x.upper() == 'N' or x.upper() == 'No':
+        print(f'Exiting.')
+        sys.exit()
+    print(f'Processing...')
+
+    # Delete any old asset files if we are starting from genesis:
+    if block_height == 0:
         removeAssetFiles()
 
     # Check node is ready for RPC calls
@@ -67,10 +126,11 @@ def main():
             time.sleep(5)
 
     print('Connected to node using RPC')
+    last_existing_block = None
 
     while not end_of_chain:
         try:
-            print(f'Trying to process block at height {block_height}')
+            print(f'Processing block at height {block_height}')
             block_hash = rpc_connection.getblockhash(block_height)
             block = rpc_connection.getblock(block_hash)
             last_existing_block = block_height
@@ -105,37 +165,45 @@ def main():
         except Exception as e:
             if hasattr(e, 'message'):
                 if e.message == 'Block height out of range':
-                    print(f'No block at height {block_height}. Reached chain tip. Stopping.')
+                    print(f'No block at height {block_height}. Stopping.')
                 else:
                     print(f'Error: {e.message}')
             else:
                 print(f'Error: {e}')
             end_of_chain = True
-    print(f'Last block processed was at height {last_existing_block}. Saved last block height to "LAST_BLOCK" file.')
-    writeLastBlock(last_existing_block)
+    if last_existing_block:
+        print(f'Last block processed was at height {last_existing_block}. Saved last block height to "LAST_BLOCK" file.')
+        writeLastBlockHeight(last_existing_block)
 
-def writeLastBlock(block_height):
-    with open(f'LAST_BLOCK', 'w') as filetowrite:
-        filetowrite.write(str(block_height))
+def readLastBlockHeight():
+    if Path('LAST_BLOCK').exists():
+        with open('LAST_BLOCK', 'r') as f:
+            return int(f.read())
+    else:
+        return None
+
+def writeLastBlockHeight(block_height):
+    with open('LAST_BLOCK', 'w') as f:
+        f.write(str(block_height))
 
 def writeBurn(burn, block_height):
     Path('assets').mkdir(parents=True, exist_ok=True)
     asset_hex = burn['asset']
-    with open(f'assets/{asset_hex}', 'a') as filetowrite:
+    with open(f'assets/{asset_hex}', 'a') as f:
         amount = burn['value']
         action = 'BURN'
-        filetowrite.write(f'{action}\n')
-        filetowrite.write('-' * len(action))
-        filetowrite.write('\n')
-        filetowrite.write(f'Asset Hex: {asset_hex}\n')
-        filetowrite.write(f'Amount: {amount}\n')
-        filetowrite.write(f'Block: {block_height}\n')
-        filetowrite.write('\n')
+        f.write(f'{action}\n')
+        f.write('-' * len(action))
+        f.write('\n')
+        f.write(f'Asset Hex: {asset_hex}\n')
+        f.write(f'Amount: {amount}\n')
+        f.write(f'Block: {block_height}\n')
+        f.write('\n')
 
 def writeIssueOrReissue(issuance, block_height):
     Path('assets').mkdir(parents=True, exist_ok=True)
     asset_hex = issuance['asset']
-    with open(f'assets/{asset_hex}', 'a') as filetowrite:
+    with open(f'assets/{asset_hex}', 'a') as f:
         asset_amount_type = 'Asset Amount'
         token_amount_type = 'Token Amount'
         token_amount = 0
@@ -166,20 +234,20 @@ def writeIssueOrReissue(issuance, block_height):
             issuance_reissuance = 'REISSUANCE'
         else:
             issuance_reissuance = 'ISSUANCE'
-        filetowrite.write(f'{issuance_reissuance} ({issuance_type})\n')
-        filetowrite.write('-' * len(f'{issuance_reissuance} ({issuance_type})'))
-        filetowrite.write('\n')
-        filetowrite.write(f'Asset Hex: {asset_hex}\n')
+        f.write(f'{issuance_reissuance} ({issuance_type})\n')
+        f.write('-' * len(f'{issuance_reissuance} ({issuance_type})'))
+        f.write('\n')
+        f.write(f'Asset Hex: {asset_hex}\n')
         if not is_reissuance:
-            filetowrite.write(f'Token Hex: {token_hex}\n')
-        filetowrite.write(f'{asset_amount_type}: {str(asset_amount)}\n')
+            f.write(f'Token Hex: {token_hex}\n')
+        f.write(f'{asset_amount_type}: {str(asset_amount)}\n')
         if not is_reissuance:
             if token_amount:
-                filetowrite.write(f'{token_amount_type}: {str(token_amount)}\n')
+                f.write(f'{token_amount_type}: {str(token_amount)}\n')
             else:
-                filetowrite.write(f'{token_amount_type}: {0}\n')
-        filetowrite.write(f'Block: {block_height}\n')
-        filetowrite.write('\n')
+                f.write(f'{token_amount_type}: {0}\n')
+        f.write(f'Block: {block_height}\n')
+        f.write('\n')
 
 def removeAssetFiles():
     folder = 'assets'
