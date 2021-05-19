@@ -145,6 +145,7 @@ def main():
                     issuance = vin.get('issuance')
                     if issuance:
                         if ASSET_ID is None or ASSET_ID == issuance['asset']:
+                            print(f"Found asset: {issuance['asset']}")
                             writeIssueOrReissue(issuance, block_height)
                 #Burns:
                 for vout in tx_details['vout']:
